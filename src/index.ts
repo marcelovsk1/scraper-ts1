@@ -136,118 +136,126 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
 
         const pageContent = await page.content();
         const $ = cheerio.load(pageContent);
-        const events = $('div.discover-search-desktop-card');
+        const events = $('a.eds-event-card-content__action-link'); // Ajuste no seletor
 
+        console.log(`Found ${events.length} events on page ${pageNum}`);
         for (const event of events.toArray()) {
-            const eventLink = $(event).find('a.event-card-link');
-            if (!eventLink.length) {
+            const eventLink = $(event).attr('href');
+            if (!eventLink) {
+                console.log("No event link found, skipping...");
                 continue;
             }
 
-            const eventUrl = 'https://www.eventbrite.com' + (eventLink.attr('href')?.startsWith('/') ? eventLink.attr('href') : '');
+            const eventUrl = 'https://www.eventbrite.com' + eventLink;
+            console.log(`Navigating to event: ${eventUrl}`); // Adicionando log de navegação
             try {
                 await page.goto(eventUrl, { waitUntil: 'networkidle2' });
+
+                await delay(2000); // Substituir page.waitForTimeout por delay
+                const eventPageContent = await page.content();
+                const eventPage = cheerio.load(eventPageContent);
+
+                const eventTitleElem = eventPage('h1.event-title.css-0');
+                if (!eventTitleElem.length) {
+                    console.log("Event title not found, going back...");
+                    await page.goBack();
+                    continue;
+                }
+
+                let eventTitle = eventTitleElem.text().trim();
+                if (eventTitle.includes("Log InLog In")) {
+                    eventTitle = eventTitle.replace("Log InLog In", "").trim();
+                }
+
+                const descriptionElem = eventPage('p.summary');
+                const description = descriptionElem.length ? descriptionElem.text().trim() : '';
+
+                const locationElem = eventPage('p.location-info__address-text');
+                const locationText = locationElem.length ? locationElem.text().trim() : '';
+
+                const [latitude, longitude] = await getCoordinates(locationText);
+                const googleMapsUrl = latitude && longitude ? openGoogleMaps(latitude, longitude) : '';
+
+                const locationDetails = {
+                    'Location': locationText,
+                    'Latitude': latitude,
+                    'Longitude': longitude,
+                    'GoogleMaps_URL': googleMapsUrl
+                };
+
+                const dateText = eventPage('span.date-info__full-datetime').text().trim() || '';
+                console.log("Date text:", dateText);
+
+                let startTime: string | null = null;
+                let endTime: string | null = null;
+
+                if (dateText) {
+                    const match = dateText.match(/(\d{1,2}:\d{2}\s?[AP]M)\s?–\s?(\d{1,2}:\d{2}\s?[AP]M)/);
+                    if (match) {
+                        [startTime, endTime] = match.slice(1);
+                    } else if (dateText.toLowerCase().includes("at")) {
+                        const timeMatch = dateText.match(/(\d{1,2}:\d{2}\s?[AP]M)/);
+                        if (timeMatch) {
+                            startTime = timeMatch[1];
+                        }
+                    }
+                }
+
+                if (!eventTitle || !dateText || !locationText) {
+                    console.log("Missing title, date, or location, going back...");
+                    await page.goBack();
+                    continue;
+                }
+
+                const formattedDates = formatDate(dateText);
+                if (!formattedDates) {
+                    console.log(`Ignoring event with invalid date: ${eventTitle}`);
+                    await page.goBack();
+                    continue;
+                }
+
+                const [formattedStartDate, formattedEndDate] = formattedDates;
+                const eventUUID = generateEventUUID(eventTitle, formattedStartDate, locationText);
+
+                const priceElem = eventPage('div.conversion-bar__panel-info');
+                const price = priceElem.length ? priceElem.text().trim() : 'undisclosed price';
+
+                const imageElem = eventPage('img.event-card-image');
+                const imageURL = imageElem.attr('src') || '';
+
+                const organizerElem = eventPage('div.descriptive-organizer-info-mobile__name');
+                const organizer = organizerElem.length ? organizerElem.text().trim() : '';
+
+                const eventInfo = {
+                    'Title': eventTitle,
+                    'Description': description,
+                    'Date': formattedStartDate,
+                    'StartTime': startTime,
+                    'EndTime': endTime,
+                    ...locationDetails,
+                    'EventUrl': eventUrl,
+                    'ImageURL': imageURL,
+                    'Organizer': organizer,
+                    'UUID': eventUUID
+                };
+
+                allEvents.push(eventInfo);
+
+                await page.goBack();
+
             } catch (e) {
                 console.log(`Timeout ao carregar o evento: ${eventUrl}`);
                 continue;
             }
-
-            await delay(2000); // Substituir page.waitForTimeout por delay
-            const eventPageContent = await page.content();
-            const eventPage = cheerio.load(eventPageContent);
-
-            const eventTitleElem = eventPage('h1.event-title.css-0');
-            if (!eventTitleElem.length) {
-                await page.goBack();
-                continue;
-            }
-
-            let eventTitle = eventTitleElem.text().trim();
-            if (eventTitle.includes("Log InLog In")) {
-                eventTitle = eventTitle.replace("Log InLog In", "").trim();
-            }
-
-            const descriptionElem = eventPage('p.summary');
-            const description = descriptionElem.length ? descriptionElem.text().trim() : '';
-
-            const locationElem = eventPage('p.location-info__address-text');
-            const locationText = locationElem.length ? locationElem.text().trim() : '';
-
-            const [latitude, longitude] = await getCoordinates(locationText);
-            const googleMapsUrl = latitude && longitude ? openGoogleMaps(latitude, longitude) : '';
-
-            const locationDetails = {
-                'Location': locationText,
-                'Latitude': latitude,
-                'Longitude': longitude,
-                'GoogleMaps_URL': googleMapsUrl
-            };
-
-            const dateText = eventPage('span.date-info__full-datetime').text().trim() || '';
-            console.log("Date text:", dateText);
-
-            let startTime: string | null = null;
-            let endTime: string | null = null;
-
-            if (dateText) {
-                const match = dateText.match(/(\d{1,2}:\d{2}\s?[AP]M)\s?–\s?(\d{1,2}:\d{2}\s?[AP]M)/);
-                if (match) {
-                    [startTime, endTime] = match.slice(1);
-                } else if (dateText.toLowerCase().includes("at")) {
-                    const timeMatch = dateText.match(/(\d{1,2}:\d{2}\s?[AP]M)/);
-                    if (timeMatch) {
-                        startTime = timeMatch[1];
-                    }
-                }
-            }
-
-            if (!eventTitle || !dateText || !locationText) {
-                await page.goBack();
-                continue;
-            }
-
-            const formattedDates = formatDate(dateText);
-            if (!formattedDates) {
-                console.log(`Ignoring event with invalid date: ${eventTitle}`);
-                await page.goBack();
-                continue;
-            }
-
-            const [formattedStartDate, formattedEndDate] = formattedDates;
-            const eventUUID = generateEventUUID(eventTitle, formattedStartDate, locationText);
-
-            const priceElem = eventPage('div.conversion-bar__panel-info');
-            const price = priceElem.length ? priceElem.text().trim() : 'undisclosed price';
-
-            const imageElem = eventPage('img.event-card-image');
-            const imageURL = imageElem.attr('src') || '';
-
-            const organizerElem = eventPage('div.descriptive-organizer-info-mobile__name');
-            const organizer = organizerElem.length ? organizerElem.text().trim() : '';
-
-            const eventInfo = {
-                'Title': eventTitle,
-                'Description': description,
-                'Date': formattedStartDate,
-                'StartTime': startTime,
-                'EndTime': endTime,
-                ...locationDetails,
-                'EventUrl': eventUrl,
-                'ImageURL': imageURL,
-                'Organizer': organizer,
-                'UUID': eventUUID
-            };
-
-            allEvents.push(eventInfo);
-
-            await page.goBack();
         }
 
         const nextButton = await page.$('button[data-spec="page-next"]');
         if (nextButton) {
+            console.log("Clicking next button...");
             await nextButton.click();
             await delay(3000); // Substituir page.waitForTimeout por delay
         } else {
+            console.log("Next button not found, ending scrape.");
             break;
         }
     }
