@@ -4,16 +4,55 @@ import { v5 as uuidv5 } from 'uuid';
 import moment from 'moment';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { Configuration, OpenAIApi } from 'openai';
 
 // Função auxiliar para simular uma espera
 function delay(time: number) {
-    return new Promise(function(resolve) {
-        setTimeout(resolve, time);
-    });
+    return new Promise(resolve => setTimeout(resolve, time));
 }
 
 const NAMESPACE = '123e4567-e89b-12d3-a456-426614174000'; // UUID válida
 const OPENCAGE_API_KEY = 'b7dae4a8c2e34bfdb672ac687f542cc0'; // Sua chave de API do OpenCage
+const OPENAI_API_KEY = ''; // Sua chave de API da OpenAI
+
+const configuration = new Configuration({
+    apiKey: OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
+async function generateTags(title: string, description: string): Promise<any[]> {
+    const predefinedTags = [
+        {"id": "005a4420-88c3-11ee-ab49-69be32c19a11", "name": "Startup", "emoji": "🚀", "tagCategory": "Education"},
+        // Adicione todas as tags predefinidas aqui
+    ];
+
+    const prompt = `
+        You are a meticulous selector, trained on identifying relevant tags for events.
+        Your task is to select, only from the list below, at most 5 tags that are very relevant for the event "${title}" (description: "${description}").
+        Here are the exhaustive list of tags to select from:
+        ${predefinedTags.map((tag, index) => `${index + 1}. ${tag.name} (${tag.tagCategory})`).join('\n')}
+        Only output the selected tags from this list, separated by comma.
+        Do not output any other tag.
+        If there is no relevant tag in the list, output 'NO TAG'.
+    `;
+
+    try {
+        const response = await openai.createChatCompletion({
+            model: "gpt-4-turbo",
+            messages: [
+                { role: "system", content: prompt }
+            ],
+            temperature: 0
+        });
+
+        const tagsString = response.data.choices[0].message?.content?.trim() || '';
+        const relevantTags = predefinedTags.filter(tag => tagsString.includes(tag.name));
+        return relevantTags;
+    } catch (e) {
+        console.error(`Erro na API OpenAI: ${e}`);
+        return [];
+    }
+}
 
 function generateEventUUID(title: string, date: string, location: string): string {
     const name = `${title}_${date}_${location}`;
@@ -136,7 +175,7 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
 
         const pageContent = await page.content();
         const $ = cheerio.load(pageContent);
-        const events = $('a.eds-event-card-content__action-link'); // Ajuste no seletor
+        const events = $('a.event-card-link');
 
         console.log(`Found ${events.length} events on page ${pageNum}`);
         for (const event of events.toArray()) {
@@ -226,6 +265,8 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
                 const organizerElem = eventPage('div.descriptive-organizer-info-mobile__name');
                 const organizer = organizerElem.length ? organizerElem.text().trim() : '';
 
+                const tags = await generateTags(eventTitle, description);
+
                 const eventInfo = {
                     'Title': eventTitle,
                     'Description': description,
@@ -236,7 +277,8 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
                     'EventUrl': eventUrl,
                     'ImageURL': imageURL,
                     'Organizer': organizer,
-                    'UUID': eventUUID
+                    'UUID': eventUUID,
+                    'Tags': tags
                 };
 
                 allEvents.push(eventInfo);
@@ -364,6 +406,8 @@ async function scrapeFacebookEvents(browser: Browser, url: string, maxScroll: nu
         const [formattedStartDate, formattedEndDate] = formattedDates;
         const eventUUID = generateEventUUID(eventTitle, formattedStartDate, locationText);
 
+        const tags = await generateTags(eventTitle, description);
+
         const eventInfo = {
             'Title': eventTitle,
             'Description': description,
@@ -375,7 +419,8 @@ async function scrapeFacebookEvents(browser: Browser, url: string, maxScroll: nu
             'ImageURL': eventPage('img.xz74otr.x1ey2m1c.x9f619.xds687c.x5yr21d.x10l6tqk.x17qophe.x13vifvy.xh8yej3').attr('src') || '',
             'Organizer': eventPage('span.xt0psk2').text().trim() || '',
             'Organizer_IMG': eventPage('img.xz74otr').attr('src') || '',
-            'UUID': eventUUID
+            'UUID': eventUUID,
+            'Tags': tags
         };
 
         allEvents.push(eventInfo);
