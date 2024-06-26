@@ -6,14 +6,14 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { Configuration, OpenAIApi } from 'openai';
 
-// Função auxiliar para simular uma espera
+// Helper function to simulate a wait
 function delay(time: number) {
     return new Promise(resolve => setTimeout(resolve, time));
 }
 
-const NAMESPACE = '123e4567-e89b-12d3-a456-426614174000'; // UUID válida
-const OPENCAGE_API_KEY = 'b7dae4a8c2e34bfdb672ac687f542cc0'; // Sua chave de API do OpenCage
-const OPENAI_API_KEY = ''; // Sua chave de API da OpenAI
+const NAMESPACE = '123e4567-e89b-12d3-a456-426614174000'; // Valid UUID
+const OPENCAGE_API_KEY = 'b7dae4a8c2e34bfdb672ac687f542cc0'; // Your OpenCage API key
+const OPENAI_API_KEY = ''; // Your OpenAI API key
 
 const configuration = new Configuration({
     apiKey: OPENAI_API_KEY,
@@ -23,7 +23,7 @@ const openai = new OpenAIApi(configuration);
 async function generateTags(title: string, description: string): Promise<any[]> {
     const predefinedTags = [
         {"id": "005a4420-88c3-11ee-ab49-69be32c19a11", "name": "Startup", "emoji": "🚀", "tagCategory": "Education"},
-        // Adicione todas as tags predefinidas aqui
+        // Add all predefined tags here
     ];
 
     const prompt = `
@@ -49,7 +49,7 @@ async function generateTags(title: string, description: string): Promise<any[]> 
         const relevantTags = predefinedTags.filter(tag => tagsString.includes(tag.name));
         return relevantTags;
     } catch (e) {
-        console.error(`Erro na API OpenAI: ${e}`);
+        console.error(`Error in OpenAI API: ${e}`);
         return [];
     }
 }
@@ -62,14 +62,14 @@ function generateEventUUID(title: string, date: string, location: string): strin
 async function scrollToBottom(page: Page, maxClicks: number = 15): Promise<void> {
     for (let i = 0; i < maxClicks; i++) {
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-        await delay(1000); // Substituir page.waitForTimeout por delay
+        await delay(1000); // Replace page.waitForTimeout with delay
     }
 }
 
 function formatDate(dateStr: string): [string, string] | null {
     console.log("Original date string:", dateStr);
     if (!dateStr) {
-        console.log("Erro: String de data vazia.");
+        console.log("Error: Empty date string.");
         return null;
     }
 
@@ -105,13 +105,13 @@ function formatDate(dateStr: string): [string, string] | null {
         }
     }
 
-    console.log("Erro: Formato de data inválido.");
+    console.log("Error: Invalid date format.");
     return null;
 }
 
 async function getCoordinates(locationText: string): Promise<[number | null, number | null]> {
     if (!locationText) {
-        console.log("Localização não encontrada para o evento.");
+        console.log("Location not found for the event.");
         return [null, null];
     }
 
@@ -131,28 +131,28 @@ async function getCoordinates(locationText: string): Promise<[number | null, num
                 return [parseFloat(location.lat), parseFloat(location.lng)];
             }
         } catch (e) {
-            console.log(`Erro ao obter coordenadas para ${query}: ${e}`);
+            console.log(`Error getting coordinates for ${query}: ${e}`);
         }
 
         return [null, null];
     };
 
-    console.log(`Tentando obter coordenadas para: ${locationText}`);
+    console.log(`Trying to get coordinates for: ${locationText}`);
 
-    // Primeira tentativa com a localização completa
+    // First attempt with the full location
     let [latitude, longitude] = await geocodeLocation(locationText + ", Montreal, Quebec, Canada");
 
-    // Segunda tentativa com apenas o endereço da rua
+    // Second attempt with just the street address
     if (!latitude && !longitude) {
         const streetAddress = locationText.split(',')[0];
-        console.log(`Tentando obter coordenadas para endereço simplificado: ${streetAddress}`);
+        console.log(`Trying to get coordinates for simplified address: ${streetAddress}`);
         [latitude, longitude] = await geocodeLocation(streetAddress + ", Montreal, Quebec, Canada");
     }
 
     if (!latitude && !longitude) {
-        console.log(`Não foi possível obter coordenadas para ${locationText}`);
+        console.log(`Could not get coordinates for ${locationText}`);
     } else {
-        console.log(`Coordenadas obtidas: Latitude ${latitude}, Longitude ${longitude}`);
+        console.log(`Coordinates obtained: Latitude ${latitude}, Longitude ${longitude}`);
     }
 
     return [latitude, longitude];
@@ -171,7 +171,7 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
 
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
         console.log(`Scraping Eventbrite page ${pageNum}`);
-        await delay(2000); // Substituir page.waitForTimeout por delay
+        await delay(2000); // Replace page.waitForTimeout with delay
 
         const pageContent = await page.content();
         const $ = cheerio.load(pageContent);
@@ -186,11 +186,11 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
             }
 
             const eventUrl = 'https://www.eventbrite.com' + eventLink;
-            console.log(`Navigating to event: ${eventUrl}`); // Adicionando log de navegação
+            console.log(`Navigating to event: ${eventUrl}`); // Adding navigation log
             try {
                 await page.goto(eventUrl, { waitUntil: 'networkidle2' });
 
-                await delay(2000); // Substituir page.waitForTimeout por delay
+                await delay(2000); // Replace page.waitForTimeout with delay
                 const eventPageContent = await page.content();
                 const eventPage = cheerio.load(eventPageContent);
 
@@ -286,7 +286,7 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
                 await page.goBack();
 
             } catch (e) {
-                console.log(`Timeout ao carregar o evento: ${eventUrl}`);
+                console.log(`Timeout loading event: ${eventUrl}`);
                 continue;
             }
         }
@@ -295,7 +295,7 @@ async function scrapeEventbriteEvents(browser: Browser, url: string, maxPages: n
         if (nextButton) {
             console.log("Clicking next button...");
             await nextButton.click();
-            await delay(3000); // Substituir page.waitForTimeout por delay
+            await delay(3000); // Replace page.waitForTimeout with delay
         } else {
             console.log("Next button not found, ending scrape.");
             break;
@@ -329,11 +329,11 @@ async function scrapeFacebookEvents(browser: Browser, url: string, maxScroll: nu
         try {
             await page.goto(eventUrl, { waitUntil: 'networkidle2' });
         } catch (e) {
-            console.log(`Timeout ao carregar o evento: ${eventUrl}`);
+            console.log(`Timeout loading event: ${eventUrl}`);
             continue;
         }
 
-        await delay(2000); // Substituir page.waitForTimeout por delay
+        await delay(2000); // Replace page.waitForTimeout with delay
         const eventPageContent = await page.content();
         const eventPage = cheerio.load(eventPageContent);
 
@@ -344,7 +344,7 @@ async function scrapeFacebookEvents(browser: Browser, url: string, maxScroll: nu
         }
 
         let eventTitle = eventTitleElem.text().trim();
-        eventTitle = eventTitle.replace("Log InLog In", "").trim(); // Remover "Log InLog In" do título
+        eventTitle = eventTitle.replace("Log InLog In", "").trim(); // Remove "Log InLog In" from the title
 
         if (uniqueEventTitles.has(eventTitle)) {
             await page.goBack();
@@ -435,8 +435,8 @@ async function scrapeFacebookEvents(browser: Browser, url: string, maxScroll: nu
 
 (async () => {
     const browser = await puppeteer.launch({
-        headless: false, // Mudar para false para abrir o navegador em modo visível
-        // Remover o caminho para usar o navegador padrão do sistema
+        headless: false, // Change to false to open the browser in visible mode
+        // Remove the path to use the system default browser
     });
 
     const sources = [
